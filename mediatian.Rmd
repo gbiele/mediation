@@ -3,12 +3,12 @@ title: "Estimating mediator effects"
 author: "Guido Biele"
 date: "5/10/2021"
 output: 
-  html_document:
+  bookdown::html_document2:
     css: style.css
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = F)
+knitr::opts_chunk$set(echo = F, fig.align = 'center')
 library(dagitty)
 library(magrittr)
 library(data.table)
@@ -19,33 +19,46 @@ as.gg_dag = function(txt, show.U = T) {
   dagitty(txt) %>% 
     tidy_dagitty() %>% 
     as.data.table() %>% 
-    .[,color := ifelse(name == "U","red","black")] %>% 
+    .[,color := ifelse(name %in% c("L","U"),"red","black")] %>% 
     ggplot(aes(x = x, y  = y, xend = xend, yend = yend)) +
     geom_dag_text(
-      color = "black", aes(label = name), size = 6) +
+      aes(label = name, color = color), size = 6) +
     coord_cartesian(xlim = c(0,1), ylim = c(-.5,.5)) +
-    theme_dag()
+    theme_dag() + 
+    scale_colour_manual(values = c("black","red")) + 
+    theme(legend.position = "none")
 }
 ```
 
 This document contains a brief summary of what I consider to be important points of  Tyler J. VanderWeele's summary of his own work in "Mediation Analysis: A Practitioner’s Guide" (2016, Annual Review of Public Health)
 
+# Effects and associations
+
+It is not uncommon that the awareness about the difficulty of drawing causal inferences from observational data leads researchers to avoid clear causal language like "the exposure causes the outcome" and instead to use less explicit language like "is associated with" or "is a risk factor for", all the while more or less subtle still treating the results of an analysis as if it could inform the reader about some causal relationship.
+
+This ambiguous (and to be clear, a bit dishonest) approach is not possible when researching mediation effects, which are clearly defined in causal terms.
+
+> In mediation, we consider an intermediate variable, called the mediator, that helps explain how or why an independent variable influences an outcome. 
+
+(Source: Gunzler et al, 2013).
+
 # Total, direct and indirect effects
 
-To understand mediation, it is usefull to first describe how the total effect of an expousre can be de-composed into direct and indirect effects.
-To do this, we can draw a simple directed acyclic grap (DAG) that contains direct indirect effects. 
+To understand mediation analysis, it is useful to first describe how the total effect of an exposure on an outcome can be de-composed into direct and indirect effects.
+
+We can draw a simple directed acyclic graph (DAG) that contains direct and indirect effects. 
 
 Before we do this, here is some basic notation:
 
 We have 
 
-- $A$, the exposure
-- $M$, the mediator
+- $A$, the exposure ($a$ is a realization of $A$)
+- $M$, the mediator 
 - $Y$, the outcome of interest
 
+(ref:Effects) The total effect of $A$ on $Y$ is the sum of the direct effect ($A \rightarrow Y$, in green) and the indirect effects ($A \rightarrow M \rightarrow Y$, in blue). Mediation analysis is generally interested in measuring how much of the effect of $A$ goes through or is mediated by a variable $M$. 
 
-```{r Effects, fig.cap = "The total effect of A on Y is the sum of the direct effect (A->Y) and the indirect effects (A->M-Z). Mediation analysis is generally interested in mesuring how much of the effetc of A goes through or is mediated by a variable M."}
-DAG_direct_indirect = 
+```{r Effects, fig.cap = '(ref:Effects)', fig.height=3}
 dag = 
 "dag {
 A [pos=\".33,0\"]
@@ -58,11 +71,11 @@ M -> Y
 
 as.gg_dag(dag) + 
   geom_dag_edges_link(
-    data = function(x) x[!(name == "A" & to == "Y")], 
+    data = function(x) x[!(name == "A" & to == "Y")], edge_color = "blue"
   ) + 
   geom_dag_edges_arc(
-    data = function(x) x[(name == "A" & to == "Y")],
-    curvature = -1
+    data = function(x) x[(name == "A" & to == "Y")], 
+    curvature = -1, edge_color = "green3"
   ) 
 ```
 
@@ -70,48 +83,57 @@ In short, `total_effect = direct_effect + indirect_effect`.
 
 # Counterfactual definitions of direct and indifect effects
 
-The **controlled direct effect** measures the effect of $A$ on $Y$ when $M$ is fixed to a specific value and and is expressed as 
+The **controlled direct effect** measures the effect of $A$ on $Y$ when $M$ is fixed to a specific value and is expressed as 
 
 $$
 Y_{a_0m}-Y_{a_1m},
 $$
 
-where $Y{a_0}$ is the outcome when the exposure is set to $0$. That is, we are calculating the difference in outcome values when $A$ has the values $a_0$ or $a_1$, while fixing the mediator to a value $m$. For example, if we want to show how much the effect of parental divorce on child mental health problems is not mediated by parental fighting, we would compare children of divorved and non-divorced parents at a fixed level of parental fighting.
+where $Y{a_0}$ is the outcome when the exposure is set to $0$. That is, we are calculating the difference in outcome values when $A$ has the values $a_0$ or $a_1$, while fixing the mediator to a value $m$. 
 
-In comparison, the **natural direct effect** fixes the value of the mediator to the "level which it naturally would have been under—for example, the absence
-of exposure", such that--continuing the above example--divorced and non-divorved parents we would calculate the effect of divorve while setting fighting lefel to "low" 
+For example, if we want to show how much of the effect of parental divorce on child mental health problems is _not_ mediated by parental fighting, we would compare children of divorced and non-divorced parents at a fixed level of parental fighting. This level could be e.g. the average level of fighting accross all parents.
+
+In comparison, the **natural direct effect** 
+
+> ... fixes the value of the mediator to the "level which it naturally would have been under—for example, the absence
+of exposure.
+
+such that--continuing the above example-- we would calculate the effect of divorce while setting fighting level to "low".
 $$
 Y_{a_0Ma_0}-Y_{a_1Ma_0}.
 $$ 
 
-The important thing here is that $M$ is fix whereas $A$ varies when we estimate the direct effect of $A$.
+The important thing here is that $M$ is fix whereas $A$ varies when we estimate the direct effect of $A$. In linear models the natural and controlled direct effects have the same value.
 
 Lastly, the **natural indirect effect** compares the outcome at two different values of $M$ while $A$ is fixed:
 $$
 Y_{aMa_1}-Y_{aMa_0},
 $$
 
-where $Y_{aMa_1}$ is the value of the outcome if the exposure is fixed to some value $a$ and the mediator has the value it has when the yhe exposure is 0. This highlights also in a way why these definitions are counterfactual: They involved comparison of quantities that we (typically) do not oberve: For instance. One specific way to calculate the indirect effect would be $Y_{a_0Ma_1}-Y_{a_0Ma_0}$, were $Y_{a_0Ma_1}$ is the outcome assuming that the exposure has the value 0, and the mediator has the value it (usually) has when the exposure is 1. To come back to our example, we could calculate the difference in predicted outcomes between these to situations: The divorced parents who fight a lot and divorced parents parents who do not fight. Alternatively, we could also calculate the difference between *non*-divorced parents who fight a lot and *non*-divorced parents parents who do not fight. 
+where $Y_{aMa_1}$ is the value of the outcome if the exposure is fixed to some value $a$ and the mediator has the value it has when the exposure is 0. 
+
+This highlights why these definitions are counterfactual: They involved comparison of quantities that we (typically) do not oberve: For instance. One specific way to calculate the indirect effect would be $Y_{a_0Ma_1}-Y_{a_0Ma_0}$, were $Y_{a_0Ma_1}$ is the outcome assuming that the exposure has the value 0, and the mediator has the value it (usually) has when the exposure is 1. This expression is a counterfactual, because we are estimating "what would have been" because we (typically) do not observe such people.
+
+To come back to our example, we could calculate the difference in predicted outcomes between these two situations: Divorced parents who fight a lot and divorced parents parents who do not fight. Alternatively, we could also calculate the difference between *non*-divorced parents who fight a lot and *non*-divorced parents parents who do not fight. The key is that we keep the realization of the exposure $A$ fixed and let the realization of $M$ vary.
 
 Now, what has all this to do with mediation? *We say an effect is mediated when the indirect effect is non-zero*.
 
-
-One important reason for understanding the calculation of direct and indirect effects in basic terms is that it allows one to think about how one could calculate them in arbitray analysis situations. i.e. also situations where direct or indirect effects cannot easily be gleaned from regression model coefficients.
+One important reason for understanding the calculation of direct and indirect effects in basic terms is that it allows one to think about how one could calculate them in arbitray analysis situations. i.e. also situations where direct or indirect effects cannot easily be gleaned from regression model coefficients. The goal of mediation analysis methods we are dicussing next is to estimate the direct as just defined.
 
 # Traditional methods to calculate indirect and direct effects
 
-Calculating difrect and indirect effects is typially done based on regression models.
+Calculating direct and indirect effects is often/typically done based on regression models.
 
 ## The Difference Method
 
-The difference method is based on estimating two regression models, one which does and one which does not include the mediatior. 
+The difference method is based on estimating two regression models, one which does and one which does not include the mediator. 
 
 The first estimates the expected value of the outcome $Y$ given the exposure $a$ and confounders $c$: 
 
 $$
 E[Y|a,c] = \phi_0 + \phi_1a + \phi_3c,
 $$ 
-where $phi$ ae simply regression weights. The important thing here is that this regression does not use $m$ as a predictor. Therefor the total effect of the expsore is simply the regression weight for the model without the mediator:
+where $\phi$ are regression weights. The important thing here is that this regression does not use $m$ as a predictor. Therefor the total effect of the expsore is simply the regression weight for the model without the mediator:
 
 $$
 TE = \phi_1a
@@ -129,28 +151,26 @@ $$
 IE_{diff} = \phi_1 - \theta_1
 $$
 
-Correspondingly, the direct effect is the the weight of the expsore in the model that also includes the mediator:
+Correspondingly, the direct effect is the the weight of the exposure in the model that also includes the mediator:
 
 $$
 DE = \theta_1.
 $$
 
-Now that'a all fine, but you are maybe wondering **HOW DO I KNOW IF THE INDIREC EFFEFT IS STATISTICALLY SIGNIFICANT???**. One way to address this is to do model comparison, i.e. to check if the model that does incluse the mediator fits the data statistically significant better than the model without mediators. This could be done with a likelihood ratio tests, AIC, BIC, though none of these methods is perfect and with enough data, the model with more predictors will alwys fit the data better.
-
+Now that'a all fine, but you are maybe wondering **HOW DO I KNOW IF THE INDIRECT EFFEFT IS STATISTICALLY SIGNIFICANT???**. One way to address this is to do model comparison, i.e. to check if the model that does incluse the mediator fits the data statistically significant better than the model without mediators. This could be done with a likelihood ratio tests, AIC, BIC, though none of these methods is perfect and with enough data, the model with more predictors will always fit the data better.
 
 ## The Product Method
 
-Psychologists who have worked with SEMs will typically be more familiar with the product method. Intuitively, this methods calculaytes the infiderec effect by asking _How much of the outcome can I explain when I know the effect of the exposure on the mediator and of the mediator on the outcome?_ While total effects in SEMs are calculated by adding the multiplied coefficients along all direct and indirect paths from the predictor to the outcome, the product method described here still involves 2 regressions:
+Psychologists who have worked with SEMs will typically be more familiar with the product method. Intuitively, this methods calculates the indirect effect by asking _How much of the outcome can I explain when I know the effect of the exposure on the mediator and of the mediator on the outcome?_ While total effects in SEMs are calculated by adding the multiplied coefficients along all direct and indirect paths from the predictor to the outcome, the product method described here still involves 2 regressions:
 
-
-One regression examines the (causal) effect of the exposure on the mediator.
+One regression examines the causal effect of the exposure on the mediator.
 
 $$
 E[M|a,c] = \beta_0 + \beta_1a +  \beta_3c,
 $$ 
 
 
-The second regression investigates if we still have an effect of the mediator on the outcome in presence of a direct effect of the exposure. That is, this is again the 2nd regression model described for the difference method.
+The second regression investigates the effect of the mediator on the outcome in presence of a direct effect of the exposure. That is, this is again the 2nd regression model described for the difference method.
 
 $$
 E[Y|a,m,c] = \theta_0 + \theta_1a + \theta_2m + \theta_3c,
@@ -162,17 +182,17 @@ $$
 IE_{prod} = \theta_2\beta_1
 $$
 
-That is, there is only a mediation effect if there is a (causal) effect of $A$ on $M$ and of $M$ on $Y$.
+That is, there is only a mediation effect if there is a (causal) effect of $A \rightarrow M$ and of $M \rightarrow Y$.
 
-As one would hope and expect, the produc method and the difference method generate the same results. This is, however, only true for linear regression models and not for logistic regression models. Indeed, simply applying these methods to outputs from logistic regressions of any regression that involves non-linear link function will incorrect results.
+As one would hope and expect, the produc method and the difference method generate the same results. This is, however, only true for linear regression models and not for logistic regression models. Indeed, simply applying these methods to outputs from logistic regressions or any regression that involves non-linear link function will lead incorrect results.
 
 # Assumptions about the lack of confounding
 
-The reliance on linear model is one condition for a valid use of the difference or product method described above. In addition, mediation analyses make a number of assumptions about the lack of unobserved confounding variables. The reason for there being *a number of* assumptions is that calculating direct and indirect effects involves estimating different causal effects, and each of these causal effects makes its own assumptions.
+Using a linear model is one condition for a valid use of the difference or product method described above. In addition, mediation analyses make a number of assumptions about the lack of unobserved confounding variables. The reason for there being *a number of* assumptions is that calculating direct and indirect effects involves estimating different causal effects, and the estimation of each causal effect requires a new set of (similar) assumptions.
 
-Before go through these assumptions, lets look at DAG that depicts the assumed data-generating process
+Before go through these assumptions, lets look at DAG that depicts the a data-generating process under which we can estimate mediation effects.
 
-```{r GoodDAG, fig.cap="A directed acyclic graph describing a scenario in which direct and indirect effects can be calculated. The most important paths in this DAG are the absent paths from common unobserved causes."}
+```{r GoodDAG, fig.cap="A directed acyclic graph (DAG) describing a scenario in which direct and indirect effects can be calculated. The most important paths in this DAG are the absent paths from common unobserved causes."}
 good_dag = 
 "dag {
 C [pos=\"0,0\"]
@@ -193,7 +213,7 @@ good_dag =
     data = function(x) x[(name == "A" & to == "M") | (name == "M" & to == "Y")], 
   ) +
   geom_dag_edges_arc(
-    data = function(x) x[(name == "C")],curvature = 1
+    data = function(x) x[(name == "C")] ,curvature = 1
   ) +
   geom_dag_edges_arc(
     data = function(x) x[(name == "A" & to == "Y")],curvature = -1
@@ -205,9 +225,9 @@ good_dag
 
 ## No exposure - outcome confounding
 
-The first assumption is the basic assumption made for any analyses that estimates a causal effect from observational data: There must not be unobserved variables $U$ that cause both the the exposure and the outcome.
+The first assumption is the basic assumption made for any analyses that estimates a causal effect from observational data: There must not be unobserved variables $U$ that cause both the the exposure $A$ and the outcome $Y$.
 
-```{r badDAG1, fig.cap="A: A DAG without unobserved confounders between exposure and outcome. B: A dag with an unoberved confounder", fig.width=8}
+```{r badDAG1, fig.cap="A DAG with an unobserved confounder between exposure and outcome."}
 bad_dag1 = 
 "dag {
 C [pos=\"0,0\"]
@@ -231,7 +251,7 @@ bad_dag1 =
     data = function(x) x[(name == "A" & to == "M") | (name == "M" & to == "Y")], 
   ) +
   geom_dag_edges_link(
-    data = function(x) x[(name == "U")],
+    data = function(x) x[(name == "U")], edge_colour = "red"
   ) +
   geom_dag_edges_arc(
     data = function(x) x[(name == "C")],curvature = 1
@@ -240,16 +260,16 @@ bad_dag1 =
     data = function(x) x[(name == "A" & to == "Y")],curvature = -1
   )
 
-good_dag + ggtitle("A") | bad_dag1 + ggtitle("B")
+bad_dag1
 ```
 
-Coming back to our example: We must assume that there are no unobserved variables that cause divorce and child mental health problems. Such variables could include parental mental health diagnoses or temperament, parental education, or genetic vulnerabilities.
+Coming back to our example: We must assume that there are no unobserved variables that cause divorce and child mental health problems. Such variables could include parental mental health or temperament, parental education, or genetic vulnerabilities.
 
 ## No mediator - outcome confounding
 
 The next causal effect we are interest in is the effect of the mediator on the outcome, which we only can estimate if there is not confounding for this relationship:
 
-```{r badDAG2, fig.cap="A: A DAG without unobserved confounders between exposure and outcome. B: A dag with an unoberved confounder", fig.width=8}
+```{r badDAG2, fig.cap="A DAG with an unobserved confounder between mediator and outcome."}
 bad_dag2 = 
 "dag {
 C [pos=\"0,0\"]
@@ -273,7 +293,7 @@ bad_dag2 =
     data = function(x) x[(name == "A" & to == "M") | (name == "M" & to == "Y")], 
   ) +
   geom_dag_edges_link(
-    data = function(x) x[(name == "U")],
+    data = function(x) x[(name == "U")], edge_colour = "red"
   ) +
   geom_dag_edges_arc(
     data = function(x) x[(name == "C")], curvature = 1
@@ -282,7 +302,7 @@ bad_dag2 =
     data = function(x) x[(name == "A" & to == "Y")], curvature = -1
   )
 
-good_dag + ggtitle("A") | bad_dag2 + ggtitle("B")
+bad_dag2
 ```
 
 Coming again back to our example, we would assume that we have measured things like parental temperament, prior mental health problems of the child and that there are no other common causes of fighting between parents and child mental health that were not measured.
@@ -291,7 +311,7 @@ Coming again back to our example, we would assume that we have measured things l
 
 To complete our chain of unbiased causal effects, we finally also need to assume that there are no unmeasured common causes of exposure and mediator:
 
-```{r badDAG3, fig.cap="A: A DAG without unobserved confounders between exposure and outcome. B: A dag with an unoberved confounder", fig.width=8}
+```{r badDAG3, fig.cap="A DAG with an unobserved confounder between exposure and mediator."}
 bad_dag3 = 
 "dag {
 C [pos=\"0,0\"]
@@ -315,7 +335,7 @@ bad_dag3 =
     data = function(x) x[(name == "A" & to == "M") | (name == "M" & to == "Y")], 
   ) +
   geom_dag_edges_link(
-    data = function(x) x[(name == "U")],
+    data = function(x) x[(name == "U")], edge_colour = "red"
   ) +
   geom_dag_edges_arc(
     data = function(x) x[(name == "C")], curvature = 1
@@ -324,16 +344,22 @@ bad_dag3 =
     data = function(x) x[(name == "A" & to == "Y")], curvature = -1
   )
 
-good_dag + ggtitle("A") | bad_dag3 + ggtitle("B")
+bad_dag3
 ```
 
 So we would like to have measured e.g. that parents have compatible parenting styles and expectations towards the child, that parents do not have unknown mental health problems that can be causes of divorce and child mental health, etc.
 
-## Measured confounders cannot be mediators
+The psychological literature on estimating mediation is in theory aware of the importance of assumption of no unobserved confounding, as e.g. this quote shows (source: http://davidakenny.net/cm/mediate.html).
 
-Given that all assumptions so far were about absence of unobserved confodunders, one might want to conclude that mediation analyses are generally safe when there are no unobserved confounders. This is, however, not the case. In particular, it is possible that we have observed confounders, which are however also mediators between the exposure and the outcome. In this case, we cannot simply include the confounder which is also a mediator,
+> Omitted Variables: In this case, there is a variable that causes both variables in the equation. These variables are called confounders in some literatures and the assumption can be stated more formally and generally, see below. For example, there is a variable that causes both the mediator and the outcome.  This is the most likely source of specification error and is difficult to find solutions to circumvent it. [Unfortunately, this key assumption is not directly discussed in Baron and Kenny (1986), but is discussed in Judd and Kenny (1981).]  Although there has been some work on the omitted variable problem, the only complete solution is to specify and measure such variables and control for their effects.
 
-```{r badDAG4, fig.cap="A DAG where a mesaured confounder (L) is also a mediator"}
+However, this seems not always to be discussed before anything else, which I think is the right thing to do.
+
+## Measured confounders must not be mediators
+
+Given that all assumptions so far were about absence of unobserved confodunders, one might want to conclude that mediation analyses are generally safe when there are no unobserved confounders. This is, however, not the case. It is possible that we have observed confounders, which are however also mediators between the exposure and the outcome. In this case, we cannot simply include the confounder which is also a mediator.
+
+```{r badDAG4, fig.cap="A DAG where a mesaured confounder (L) is also a mediator."}
 bad_dag4 = 
 "dag {
 C [pos=\"0,0\"]
@@ -355,10 +381,13 @@ L -> Y
 bad_dag4 = 
   as.gg_dag(bad_dag4) +
   geom_dag_edges_link(
-    data = function(x) x[(name == "A" & to %in%  c("M","L")) | (name == "M" & to == "Y") | (name == "L")], 
+    data = function(x) x[(name == "A" & to %in%  c("M")) | (name == "M" & to == "Y")], 
   ) +
   geom_dag_edges_link(
-    data = function(x) x[(name == "U")],
+    data = function(x) x[(name == "L" | to == "L")], edge_colour = "red" 
+  ) +
+  geom_dag_edges_link(
+    data = function(x) x[(name == "U")], edge_colour = "red"
   ) +
   geom_dag_edges_arc(
     data = function(x) x[(name == "C")], curvature = 1
@@ -370,20 +399,28 @@ bad_dag4 =
 bad_dag4
 ```
 
-Such a situation makes a straight forward estimation of a mediation effect difficult, because one would like to adjust for L in order to get the causal effect of M, but if we do so we can no longer use $\theta1$ as the causal effect of $A$ after accounting for $M$, because a in a regression that adjusts also for $M$, $\theta1$ can no longer capture the effect of $A$ that goes through $L$.
+Such a situation makes a straight forward estimation of a mediation effect difficult: On the one hand, we want that the coefficient $\theta_1$ captures the effect of $A$ after we have accounted for $M$. If we want to accurately account for the effect of $M$ we need also to adjust for $L$. However, if we adjudt for $L$, $\theta_1$ captures less than the effect of $A$ after we have accounted for $M$, because we have also accounted for the effect fo $A$ that goes through $L$. If we would account for $M$ and $L$, we would see and inflated effect inidrect effect of $M$ because the coefficient for the effect of the exposure in the model with two adjustments would be too small.
 
 $$
-IE_{diff} = \phi_1 - \theta_1n \\
+IE_{diff} = \phi_1 - \theta_1 \\
 E[Y|a,m,c] = \theta_0 + \theta_1a + \theta_2m + \theta_3c \\
 E[Y|a,m,l,c] = \eta_0 + \eta_1a + \eta_2m + \eta_3l + \eta_4c \\
  \theta_1a \neq \eta_1a
 $$
 
+To come back to our running example again: One could hypothesize the divorce leads to a shrinking social-support network, which can be cause for more fighting between parents (who know have to do more on their own) and reduces the number of people who can help a child who maybe already has some problems like difficulties at school. If this is a plausible scenario, a study that investigates parental fighting as a mediator between divorce and child mental health would have difficulties doing so, even if the social support network were measured.
+
 ## What can we do about assumptions
 
-The most important implication of the numerous assumptions involved in mediation analyses is that one should carefully think about planned mediation analysis and _before data collection_, as it is unlikely that one has measures all relevant or even the most important confounders.
+The most important implication of the numerous assumptions involved in mediation analyses is that one should carefully think about planned mediation analysis and _before data collection_, as it is unlikely that one has measured all relevant or even the most important confounders if a mediation analysis was not planned.
 
-Regardless, VanderWeele recommends to employ sensitivity checks which can tell how strong confounding would need to be to explain estimated causal effects. In addition, I'd like to add that one can test implied conditional independencies to check the assumption of a DAG. However, the model shown ib \ref{@badDAG1} has no (implied) independencies. 
+Regardless, VanderWeele recommends to employ sensitivity checks which can tell how strong confounding would need to be to explain estimated causal effects. In addition, I'd like to add that one can test implied conditional independencies to check the assumption of a DAG. However, the model shown in Figure  \@ref(fig:badDAG1) has no (implied) independencies. 
+
+# Other limitations & conditions
+
+- The simple difference or product methods described until here will fail if there are interactions between mediator and exposure (i.e. multiplicative in addition to additive effects), in which case more complicated methods need to be used.
+
+- Reverse causation is much easier to exclude if the exposure is measured before the mediator, and the mediator before the outcome. If variables were measured simulatenously, one would need very strong theoretical reasons to rule out reverse causation.
 
 # Mediation effects in other analyses
 
@@ -401,7 +438,25 @@ This is basically the product method which uses the odds ratio as a starting poi
 
 > However, if the outcome is not rare (10% is often used as a cutoff), then the product method and the difference method can and do diverge, and, in fact, neither of these approaches nor the expressions given above are valid for the direct and indirect effects.
 
-Hence, the log-binomial instead of the logistic model is  recommended. 
+Hence, the log-binomial instead of the logistic model is recommended.  
 
+## Structural equation models (SEM)
 
-## SEM
+SEM's are often used in psychology to investigate interaction effects. While SEM are very flexible and even complicated models can be formulated and estimated with relative ease, mediation analysis in SEMs requires all the assumption just discussed. That is, for an SEM-based mediation analysis one has to confirm for each exposure-mediator-outcome triplet that there are
+
+- no unobserved common causes of exposure and outcome,
+- no unobserved common causes of exposure and mediator,
+- no unobserved common causes of mediator and outcome and
+- common causes of mediator and outcome are not themselves a mediator between exposure and outcome.
+
+One advantage of SEMs is that they are typically estimated in software that also visualizes the model, which facilitates thinking about how realistic these assumptions are.
+
+# Summary
+
+- Mediation analysis is firmly located in the field of causal analysis. Therefore valid inferences require strong assumptions.
+- Mediation analysis builds on estimating 3 causal effects $exposure \rightarrow outcome$, $exposure \rightarrow mediator$, $mediator \rightarrow outcome$, and for each we must verify absence of unobserved confounders and/or do sensitivity tests. In addition, we must exclude the possibility that measured confounders are themselves mediators.
+- Unfortunately, we have so far only scratched the surface of biased estimation of causal effects, as other types of bias (self selection into the study, loss to follow up, collider bias) can also invalidate each of the effect estimates needed for a mediation analysis
+
+In conclusion: Doing a **valid** mediation analysis is very hard.
+
+In comparison, just doing a mediation analysis is not so hard (still don't do it).
